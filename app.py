@@ -6,20 +6,31 @@ import io
 
 class QCMProcessor:
     def __init__(self, raw_content):
-        # On décode les entités HTML (ex: &lt; devient <) au cas où le fichier est mal formaté
-        decoded_content = html.unescape(raw_content)
-        self.soup = BeautifulSoup(decoded_content, 'html.parser')
+        # ÉTAPE CRUCIALE : On nettoie le format "Code Source" du navigateur
+        # On extrait tout ce qui est dans les balises <td class="line-content">
+        soup_raw = BeautifulSoup(raw_content, 'html.parser')
+        lines = soup_raw.find_all("td", class_="line-content")
+        
+        if lines:
+            # On reconstruit le vrai HTML à partir des lignes de code
+            full_html = "".join([line.get_text() for line in lines])
+            # On décode les entités (ex: &lt; devient <)
+            self.clean_html = html.unescape(full_html)
+        else:
+            # Si c'est un fichier HTML standard
+            self.clean_html = raw_content
+            
+        self.soup = BeautifulSoup(self.clean_html, 'html.parser')
         
     def parse_data(self):
         qcm_list = []
-        # Extraction des cartes de QCM
         cards = self.soup.find_all("div", class_="card card-content")
         
         for card in cards:
             title_div = card.find("div", class_="card-title")
             if not title_div: continue
             
-            # Nettoyage du titre (on enlève les icônes de l'interface)
+            # Nettoyage du titre
             qcm_title = title_div.get_text(" ", strip=True).split("info_outline")[0].strip()
             
             items = []
@@ -44,99 +55,84 @@ class QCMProcessor:
                 qcm_list.append({"title": qcm_title, "items": items})
         return qcm_list
 
-def clean_for_pdf(text):
-    """Remplace les caractères problématiques pour la police Helvetica standard."""
+def clean_txt(text):
+    """Évite les crashs de police PDF sur les caractères spéciaux."""
     if not text: return ""
     replacements = {
         '\u2019': "'", '\u2018': "'", '\u201c': '"', '\u201d': '"',
-        '\u00a0': " ", '\u2026': "...", '\u00e2': "a", '\u00e9': "e",
-        '\u00e0': "a", '\u00e8': "e", '\u00f9': "u", '\u00ea': "e",
-        '\u00ee': "i", '\u00f4': "o", '\u00eb': "e", '\u00ef': "i"
+        '\u00a0': " ", '\u2026': "...", '\u00e9': "e", '\u00e0': "a",
+        '\u00e8': "e", '\u00ea': "e", '\u00f4': "o", '\u00ee': "i"
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
-    # Conversion finale en Latin-1 (format PDF standard)
     return text.encode('latin-1', 'replace').decode('latin-1')
 
 def generate_pdf(all_qcm):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     
-    # --- PARTIE 1 : SUJET ---
+    # --- SUJETS ---
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 20, "CAHIER D'EXERCICES (SUJETS)", ln=True, align='C')
+    pdf.cell(0, 20, "SUJETS", ln=True, align='C')
     pdf.ln(10)
 
     for qcm in all_qcm:
         pdf.set_font("Helvetica", "B", 12)
-        pdf.set_fill_color(245, 245, 245)
-        pdf.multi_cell(0, 10, clean_for_pdf(qcm['title']), border=1, fill=True)
+        pdf.set_fill_color(240, 240, 240)
+        pdf.multi_cell(0, 10, clean_txt(qcm['title']), border=1, fill=True)
         pdf.ln(2)
 
         for item in qcm['items']:
             pdf.set_font("Helvetica", "B", 10)
             pdf.cell(0, 6, f"{item['label']} :", ln=True)
             pdf.set_font("Helvetica", "", 10)
-            pdf.multi_cell(0, 6, clean_for_pdf(item['sujet']))
+            pdf.multi_cell(0, 6, clean_txt(item['sujet']))
             pdf.ln(2)
         pdf.ln(5)
 
-    # --- PARTIE 2 : CORRIGE ---
+    # --- CORRIGÉS ---
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 20, "CORRIGE DETAILLE", ln=True, align='C')
+    pdf.cell(0, 20, "CORRIGES", ln=True, align='C')
     pdf.ln(10)
 
     for qcm in all_qcm:
         pdf.set_font("Helvetica", "B", 12)
-        pdf.set_fill_color(235, 245, 255)
-        pdf.multi_cell(0, 10, clean_for_pdf(qcm['title']), border=1, fill=True)
+        pdf.set_fill_color(230, 240, 255)
+        pdf.multi_cell(0, 10, clean_txt(qcm['title']), border=1, fill=True)
         pdf.ln(2)
 
         for item in qcm['items']:
             pdf.set_font("Helvetica", "B", 10)
-            pdf.write(6, f"{item['label']} - Sujet : ")
+            pdf.write(6, f"{item['label']} - ")
             pdf.set_font("Helvetica", "", 10)
-            pdf.multi_cell(0, 6, clean_for_pdf(item['sujet']))
+            pdf.multi_cell(0, 6, clean_txt(item['sujet']))
             
-            # Couleur
-            if "Faux" in item['correction']:
-                pdf.set_text_color(200, 0, 0)
-            else:
-                pdf.set_text_color(0, 120, 0)
-            
+            color = (200, 0, 0) if "Faux" in item['correction'] else (0, 120, 0)
+            pdf.set_text_color(*color)
             pdf.set_font("Helvetica", "B", 10)
             pdf.write(6, "Correction : ")
             pdf.set_font("Helvetica", "", 10)
-            pdf.multi_cell(0, 6, clean_for_pdf(item['correction']))
+            pdf.multi_cell(0, 6, clean_txt(item['correction']))
             pdf.set_text_color(0, 0, 0)
             pdf.ln(4)
-        pdf.ln(5)
-
     return pdf.output()
 
-# --- INTERFACE ---
-st.set_page_config(page_title="tHarmo PDF", layout="centered")
-st.title("📄 Convertisseur tHarmo")
-
-files = st.file_uploader("Upload tes fichiers HTML", type="html", accept_multiple_files=True)
+# --- APP ---
+st.title("Convertisseur tHarmo")
+files = st.file_uploader("Upload tes fichiers", type="html", accept_multiple_files=True)
 
 if files:
     all_data = []
     for f in files:
-        raw_content = f.read().decode("utf-8", errors="ignore")
-        processor = QCMProcessor(raw_content)
+        raw = f.read().decode("utf-8", errors="ignore")
+        processor = QCMProcessor(raw)
         all_data.extend(processor.parse_data())
     
-    if st.button(f"Générer le PDF ({len(all_data)} QCMs trouvés)"):
+    if st.button(f"Générer PDF ({len(all_data)} QCMs trouvés)"):
         if not all_data:
-            st.warning("Aucun QCM détecté. Vérifie le format de ton fichier.")
+            st.error("Aucun QCM trouvé. Ton fichier est peut-être vide ou mal copié.")
         else:
-            pdf_bytes = generate_pdf(all_data)
-            st.download_button(
-                label="⬇️ Télécharger le PDF",
-                data=bytes(pdf_bytes),
-                file_name="QCM_Sujet_Corrige.pdf",
-                mime="application/pdf"
-            )
+            pdf = generate_pdf(all_data)
+            st.download_button("Télécharger PDF", data=bytes(pdf), file_name="export.pdf")
