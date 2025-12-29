@@ -2,19 +2,7 @@ import streamlit as st
 from bs4 import BeautifulSoup
 from fpdf import FPDF
 import io
-import urllib.request
 import os
-
-# Configuration de la police Unicode pour supporter les caractères spéciaux
-FONT_URL = "https://github.com/reingart/pyfpdf/raw/master/fpdf/font/DejaVuSans.ttf"
-FONT_PATH = "DejaVuSans.ttf"
-
-def download_font():
-    if not os.path.exists(FONT_PATH):
-        try:
-            urllib.request.urlretrieve(FONT_URL, FONT_PATH)
-        except Exception as e:
-            st.error(f"Erreur lors du téléchargement de la police : {e}")
 
 class QCMProcessor:
     def __init__(self, html_content):
@@ -54,70 +42,67 @@ class QCMProcessor:
 
 class PDF(FPDF):
     def header(self):
-        if hasattr(self, 'font_family'):
-            self.set_font('DejaVu', 'B', 8)
-            self.cell(0, 10, 'Convertisseur QCM - tHarmo', 0, 1, 'C')
+        self.set_font('helvetica', 'B', 8)
+        self.cell(0, 10, 'Convertisseur QCM - tHarmo', 0, 1, 'C')
 
     def chapter_title(self, title):
-        self.set_font('DejaVu', 'B', 12)
+        self.set_font('helvetica', 'B', 12)
         self.set_fill_color(200, 220, 255)
         self.cell(0, 10, title, 0, 1, 'L', fill=True)
         self.ln(4)
 
 def generate_pdf(all_qcm):
-    download_font()
     pdf = PDF()
-    
-    # Ajout de la police Unicode pour éviter FPDFUnicodeEncodingException
-    pdf.add_font('DejaVu', '', FONT_PATH, uni=True)
-    pdf.add_font('DejaVu', 'B', FONT_PATH, uni=True)
-    
     pdf.set_auto_page_break(auto=True, margin=15)
 
     # --- PARTIE 1 : SUJET ---
     pdf.add_page()
-    pdf.set_font("DejaVu", 'B', 16)
+    pdf.set_font("helvetica", 'B', 16)
     pdf.cell(0, 20, "CAHIER D'EXERCICES (SUJETS)", 0, 1, 'C')
     pdf.ln(10)
 
     for qcm in all_qcm:
         pdf.chapter_title(qcm['title'])
         for item in qcm['items']:
-            pdf.set_font("DejaVu", 'B', 10)
+            pdf.set_font("helvetica", 'B', 10)
             pdf.cell(0, 6, f"{item['label']}:", 0, 1)
-            pdf.set_font("DejaVu", '', 10)
-            pdf.multi_cell(0, 6, item['sujet'])
+            pdf.set_font("helvetica", '', 10)
+            # .encode('latin-1', 'replace').decode('latin-1') nettoie les caractères incompatibles
+            sujet = item['sujet'].encode('latin-1', 'replace').decode('latin-1')
+            pdf.multi_cell(0, 6, sujet)
             pdf.ln(2)
         pdf.ln(5)
 
     # --- PARTIE 2 : CORRIGE ---
     pdf.add_page()
-    pdf.set_font("DejaVu", 'B', 16)
+    pdf.set_font("helvetica", 'B', 16)
     pdf.cell(0, 20, "CORRIGÉ DÉTAILLÉ", 0, 1, 'C')
     pdf.ln(10)
 
     for qcm in all_qcm:
         pdf.chapter_title(qcm['title'])
         for item in qcm['items']:
-            pdf.set_font("DejaVu", 'B', 10)
+            pdf.set_font("helvetica", 'B', 10)
             pdf.write(6, f"{item['label']} - Sujet: ")
-            pdf.set_font("DejaVu", '', 10)
-            pdf.multi_cell(0, 6, item['sujet'])
+            pdf.set_font("helvetica", '', 10)
+            sujet = item['sujet'].encode('latin-1', 'replace').decode('latin-1')
+            pdf.multi_cell(0, 6, sujet)
             
             if "Faux" in item['correction']:
                 pdf.set_text_color(200, 0, 0)
             else:
                 pdf.set_text_color(0, 128, 0)
                 
-            pdf.set_font("DejaVu", 'B', 10)
+            pdf.set_font("helvetica", 'B', 10)
             pdf.write(6, "Correction : ")
-            pdf.set_font("DejaVu", '', 10)
-            pdf.multi_cell(0, 6, item['correction'])
+            pdf.set_font("helvetica", '', 10)
+            corr = item['correction'].encode('latin-1', 'replace').decode('latin-1')
+            pdf.multi_cell(0, 6, corr)
             pdf.set_text_color(0, 0, 0)
             pdf.ln(4)
         pdf.ln(5)
 
-    return pdf.output(dest='S').encode('latin-1', errors='ignore') # Fallback encodage
+    return pdf.output()
 
 # --- INTERFACE STREAMLIT ---
 st.set_page_config(page_title="tHarmo HTML to PDF", layout="centered")
@@ -138,12 +123,12 @@ if uploaded_files:
         with st.spinner('Génération du PDF...'):
             try:
                 pdf_output = generate_pdf(all_extracted_data)
-                st.success("PDF généré avec succès !")
+                st.success("PDF généré !")
                 st.download_button(
                     label="⬇️ Télécharger le PDF",
-                    data=pdf_output,
+                    data=bytes(pdf_output),
                     file_name="QCM_Sujet_Corrige.pdf",
                     mime="application/pdf"
                 )
             except Exception as e:
-                st.error(f"Erreur lors de la génération : {e}")
+                st.error(f"Erreur : {e}")
