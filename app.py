@@ -1,4 +1,3 @@
-```python
 # app.py — Streamlit + Playwright (export Sujet + Corrigé depuis tHarmo)
 #
 # Version sans BeautifulSoup, guillemets normalisés (pas d'erreur de chaîne).
@@ -427,4 +426,3 @@ with st.expander("Notes & Conseils"):
 - Si une épreuve ne s’exporte pas, fournis l’**ID** exact (ou l’URL) et réessaie.
 """
     )
-```
